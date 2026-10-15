@@ -3,7 +3,7 @@
 import { Suspense, useState, useEffect } from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
-  Plus, Search, Pencil, Archive, CheckCircle2, ReceiptText, ArrowRightLeft,
+  Plus, Search, Pencil, Archive, CheckCircle2, ReceiptText, ArrowRightLeft, Trash2,
 } from 'lucide-react';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import Modal from '../../components/ui/Modal';
@@ -26,7 +26,7 @@ function ExpensesContent() {
   const searchParams = useSearchParams();
   const {
     expenses, categories, activeCategories, payments, showArchived, setShowArchived,
-    archiveExpense, restoreExpense, moveExpense,
+    archiveExpense, restoreExpense, moveExpense, deleteExpense,
     formatINR, getWorkingAmount, getPaidAmount,
   } = useWorkspace();
 
@@ -37,6 +37,7 @@ function ExpensesContent() {
   const [editingExpense, setEditingExpense] = useState(null);
   const [paymentExpense, setPaymentExpense] = useState(null);
   const [confirmArchive, setConfirmArchive] = useState(null);
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const [moveTarget, setMoveTarget] = useState(null);
 
   // Handle URL params for deep links
@@ -230,7 +231,8 @@ function ExpensesContent() {
               <div className="row-actions">
                 <button
                   className="icon-button"
-                  aria-label="Edit expense"
+                  aria-label="Edit expense and payment"
+                  title="Edit expense and payment details"
                   onClick={() => openEditExpense(exp)}
                 >
                   <Pencil size={16} />
@@ -247,6 +249,7 @@ function ExpensesContent() {
                   <button
                     className="icon-button"
                     aria-label="Restore expense"
+                    title="Restore expense"
                     onClick={() => restoreExpense(exp.id)}
                   >
                     <CheckCircle2 size={16} />
@@ -255,17 +258,27 @@ function ExpensesContent() {
                   <button
                     className="icon-button"
                     aria-label="Archive expense"
+                    title="Archive expense"
                     onClick={() => setConfirmArchive(exp)}
                   >
                     <Archive size={16} />
                   </button>
                 )}
+                <button
+                  className="icon-button danger"
+                  aria-label="Delete expense"
+                  title="Permanently delete expense"
+                  onClick={() => setConfirmDelete(exp)}
+                >
+                  <Trash2 size={16} />
+                </button>
                 {!archived && (
                   <button
                     className="secondary-button small"
-                    onClick={() => openPayment(exp)}
+                    onClick={() => openEditExpense(exp)}
+                    title="Update status or record payment"
                   >
-                    Add payment
+                    Edit / Pay
                   </button>
                 )}
               </div>
@@ -353,6 +366,17 @@ function ExpensesContent() {
         title={`Archive "${confirmArchive?.name}"?`}
         message="This expense will be hidden from active views and excluded from budget totals. Payment records are preserved. You can restore it anytime."
         confirmLabel="Archive expense"
+        destructive
+      />
+
+      {/* ─── Confirm Delete ──────────────────────────────── */}
+      <ConfirmDialog
+        open={Boolean(confirmDelete)}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => deleteExpense(confirmDelete.id)}
+        title={`Delete "${confirmDelete?.name}"?`}
+        message="Are you sure you want to permanently delete this expense? All associated payments for this item will also be permanently deleted. This cannot be undone."
+        confirmLabel="Delete permanently"
         destructive
       />
     </>

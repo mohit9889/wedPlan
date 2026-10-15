@@ -289,6 +289,21 @@ export function WorkspaceProvider({ children }) {
     notify('Expense restored.');
   }, [cloudStatus, notify]);
 
+  const deleteExpense = useCallback(async (id) => {
+    setExpenses((prev) => prev.filter((e) => e.id !== id));
+    setPayments((prev) => prev.filter((p) => p.expense_id !== id));
+
+    if (supabase && cloudStatus === 'connected' && workspaceId) {
+      await supabase.from('payments').delete().eq('expense_id', id);
+      const { error } = await supabase.from('expenses').delete().eq('id', id);
+      if (error) {
+        notify(`Delete failed: ${error.message}`);
+        return;
+      }
+    }
+    notify('Expense deleted.');
+  }, [supabase, cloudStatus, workspaceId, notify]);
+
   const moveExpense = useCallback((expenseId, newCategoryId) => {
     // Validate the target category is in the same workspace (all local data is workspace-scoped)
     const targetCat = categories.find((c) => c.id === newCategoryId);
@@ -308,6 +323,18 @@ export function WorkspaceProvider({ children }) {
     notify('Payment recorded.');
     return pay;
   }, [cloudStatus, notify]);
+
+  const deletePayment = useCallback(async (id) => {
+    setPayments((prev) => prev.filter((p) => p.id !== id));
+    if (supabase && cloudStatus === 'connected' && workspaceId) {
+      const { error } = await supabase.from('payments').delete().eq('id', id);
+      if (error) {
+        notify(`Delete failed: ${error.message}`);
+        return;
+      }
+    }
+    notify('Payment deleted.');
+  }, [supabase, cloudStatus, workspaceId, notify]);
 
   // ─── Workspace settings ──────────────────────────────
   const updateWorkspaceSettings = useCallback(async (data) => {
@@ -453,8 +480,8 @@ export function WorkspaceProvider({ children }) {
     setShowArchived,
     notify,
     addCategory, updateCategory, archiveCategory, restoreCategory,
-    addExpense, updateExpense, archiveExpense, restoreExpense, moveExpense,
-    addPayment,
+    addExpense, updateExpense, archiveExpense, restoreExpense, moveExpense, deleteExpense,
+    addPayment, deletePayment,
     updateWorkspaceSettings,
     signIn, signUp, signOut,
     createWorkspaceCloud, joinWorkspaceCloud, getInviteCodeCloud,
@@ -469,8 +496,8 @@ export function WorkspaceProvider({ children }) {
     activeCategories, activeExpenses, totals, budgetHealth, categoriesWithStats,
     notify,
     addCategory, updateCategory, archiveCategory, restoreCategory,
-    addExpense, updateExpense, archiveExpense, restoreExpense, moveExpense,
-    addPayment,
+    addExpense, updateExpense, archiveExpense, restoreExpense, moveExpense, deleteExpense,
+    addPayment, deletePayment,
     updateWorkspaceSettings,
     signIn, signUp, signOut,
     createWorkspaceCloud, joinWorkspaceCloud, getInviteCodeCloud,

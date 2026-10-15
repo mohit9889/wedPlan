@@ -71,6 +71,15 @@ h1 { margin: 9px 0 7px; font-size: clamp(25px, 2.2vw, 32px); line-height: 1.15; 
 .secondary-button:hover { background: #f6faf8; border-color: #b8d7cd; }
 .secondary-button.small { padding: 8px 10px; font-size: 11px; }
 .secondary-button.full { width: 100%; margin-top: 8px; }
+.danger-button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; border-radius: 10px; padding: 11px 15px; font-weight: 700; font-size: 12px; border: 1px solid #fed7aa; color: #dc2626; background: #fff; white-space: nowrap; transition: all .15s ease; }
+.danger-button:hover { background: #fef2f2; border-color: #fca5a5; color: #991b1b; }
+.danger-button.small { padding: 8px 10px; font-size: 11px; }
+.icon-button.danger:hover { color: #dc2626; background: #fef2f2; border-color: #fca5a5; }
+.embedded-payment-box { background: #f0fdfa; border: 1.5px solid #99f6e4; border-radius: 14px; padding: 16px; margin-top: 6px; display: grid; gap: 12px; }
+.embedded-payment-header { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.embedded-payment-tag { font-size: 10px; font-weight: 800; letter-spacing: 0.5px; background: #ccfbf1; color: #0f766e; padding: 3px 8px; border-radius: 6px; text-transform: uppercase; }
+.modal-actions-split { display: flex; justify-content: space-between; align-items: center; gap: 9px; margin-top: 7px; padding-top: 14px; border-top: 1px solid #edf2ef; width: 100%; }
+.modal-actions-right { display: flex; gap: 9px; align-items: center; }
 .text-button { border: 0; background: transparent; color: var(--teal); display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 700; white-space: nowrap; }
 .text-button:hover { color: #084d48; }
 .hero-card { border-radius: 19px; padding: 26px 29px 22px; color: white; background: linear-gradient(112deg, #0f766e 0%, #146d64 62%, #2b897b 100%); box-shadow: 0 12px 28px #0f766e1b; position: relative; overflow: hidden; }

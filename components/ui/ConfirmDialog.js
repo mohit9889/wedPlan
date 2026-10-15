@@ -24,7 +24,7 @@ export default function ConfirmDialog({
         <button className="secondary-button" onClick={onClose}>Cancel</button>
         <button
           className="primary-button"
-          style={destructive ? { background: '#b45309' } : undefined}
+          style={destructive ? { background: '#dc2626' } : undefined}
           onClick={() => { onConfirm(); onClose(); }}
         >
           {confirmLabel}
