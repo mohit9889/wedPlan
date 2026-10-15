@@ -211,8 +211,8 @@ function ExpensesContent() {
                   {exp.vendor ? ` · ${exp.vendor}` : ''}
                 </p>
                 <span className="expense-subline">
-                  {cost === null ? 'Amount unknown' : exp.final_amount !== null && exp.final_amount !== undefined ? 'Final cost set' : 'Estimate only'}
-                  {exp.due_date ? ` · Due ${exp.due_date}` : ''}
+                  {cost === null ? 'Cost not set' : ''}
+                  {exp.due_date ? `${cost === null ? ' · ' : ''}Due ${exp.due_date}` : ''}
                 </span>
               </div>
               <div className="expense-cost">

@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Download } from 'lucide-react';
+import { Plus, Download, Trash2 } from 'lucide-react';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import Modal from '../../components/ui/Modal';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import PaymentForm from '../../components/forms/PaymentForm';
 import { downloadCsv, buildPaymentExportRows } from '../../lib/exports';
 import { getWorkingAmount, getPaidAmount } from '../../lib/calculations';
@@ -11,12 +12,13 @@ import { formatDate } from '../../lib/dates';
 
 export default function PaymentsPage() {
   const {
-    payments, expenses, categories, totals, formatINR,
+    payments, expenses, categories, totals, formatINR, deletePayment,
   } = useWorkspace();
 
   const [modal, setModal] = useState(null);
   const [filterExpense, setFilterExpense] = useState('all');
   const [filterMethod, setFilterMethod] = useState('all');
+  const [confirmDelete, setConfirmDelete] = useState(null);
 
   const sortedPayments = [...payments]
     .sort((a, b) => String(b.paid_at || b.payment_date || '').localeCompare(String(a.paid_at || a.payment_date || '')));
@@ -121,6 +123,7 @@ export default function PaymentsPage() {
                 <th>Reference</th>
                 <th>Notes</th>
                 <th className="align-right">Amount</th>
+                <th style={{ width: 44, textAlign: 'center' }}></th>
               </tr>
             </thead>
             <tbody>
@@ -140,6 +143,16 @@ export default function PaymentsPage() {
                     <td>{p.reference || '—'}</td>
                     <td>{p.notes || '—'}</td>
                     <td className="align-right paid-text">{formatINR(p.amount)}</td>
+                    <td style={{ textAlign: 'center' }}>
+                      <button
+                        className="icon-button danger"
+                        aria-label="Delete payment"
+                        title="Delete payment record"
+                        onClick={() => setConfirmDelete(p)}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    </td>
                   </tr>
                 );
               })}
@@ -164,6 +177,17 @@ export default function PaymentsPage() {
       >
         <PaymentForm expense={null} onDone={() => setModal(null)} />
       </Modal>
+
+      {/* ─── Confirm Delete Payment ──────────────────────── */}
+      <ConfirmDialog
+        open={Boolean(confirmDelete)}
+        onClose={() => setConfirmDelete(null)}
+        onConfirm={() => deletePayment(confirmDelete.id)}
+        title="Delete payment record?"
+        message={`Are you sure you want to delete this payment of ${confirmDelete ? formatINR(confirmDelete.amount) : ''}? This will restore the outstanding balance for the expense.`}
+        confirmLabel="Delete payment"
+        destructive
+      />
     </>
   );
 }

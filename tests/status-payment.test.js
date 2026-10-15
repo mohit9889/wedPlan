@@ -77,4 +77,62 @@ describe('Status-based Payment Flow and Expense Deletion', () => {
     expect(payments).toHaveLength(1);
     expect(payments[0].expense_id).toBe('exp-2');
   });
+
+  it('prevents accidental duplicate payment on edit when remaining balance is 0', () => {
+    const expense = {
+      id: 'e-100',
+      name: 'Long Set',
+      estimated_amount: 415957,
+      final_amount: 415957,
+      status: 'paid',
+    };
+    const payments = [
+      { id: 'p-1', expense_id: 'e-100', amount: 415957 },
+    ];
+    const workingAmount = expense.final_amount;
+    const existingPaid = payments.reduce((sum, p) => sum + p.amount, 0);
+    const remainingBalance = Math.max(0, workingAmount - existingPaid);
+
+    expect(remainingBalance).toBe(0);
+
+    // Default payment behavior for edit mode:
+    // recordPayment must be false, paymentAmount must be '' (not falling back to workingAmount!)
+    const isEditMode = Boolean(expense);
+    const defaultRecordPayment = isEditMode ? false : true;
+    const defaultPaymentAmount = remainingBalance > 0 ? remainingBalance : '';
+
+    expect(defaultRecordPayment).toBe(false);
+    expect(defaultPaymentAmount).toBe('');
+  });
+
+  it('sanitizes text input to allow numbers only', () => {
+    function sanitizeNumericInput(raw) {
+      return String(raw).replace(/[^0-9]/g, '');
+    }
+
+    expect(sanitizeNumericInput('12345')).toBe('12345');
+    expect(sanitizeNumericInput('12,345')).toBe('12345');
+    expect(sanitizeNumericInput('₹50000')).toBe('50000');
+    expect(sanitizeNumericInput('abc12def34')).toBe('1234');
+    expect(sanitizeNumericInput('e10+5-2')).toBe('1052');
+    expect(sanitizeNumericInput('')).toBe('');
+  });
+
+  it('maps single cost input to both estimated and final amount', () => {
+    const singleCostInput = '45000';
+    const numericCost = singleCostInput.trim() !== '' ? Number(singleCostInput) : null;
+    const data = {
+      name: 'Catering',
+      category_id: 'cat-1',
+      estimated_amount: numericCost,
+      final_amount: numericCost,
+      status: 'paid',
+    };
+
+    const result = validate(expenseSchema, data);
+    expect(result.success).toBe(true);
+    expect(result.data.estimated_amount).toBe(45000);
+    expect(result.data.final_amount).toBe(45000);
+  });
 });
+

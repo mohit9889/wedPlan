@@ -41,6 +41,8 @@ export default function PaymentForm({ expense, onDone }) {
     onDone?.();
   }
 
+  const [amount, setAmount] = useState('');
+
   return (
     <form className="modal-form" onSubmit={handleSubmit}>
       <label>
@@ -60,11 +62,16 @@ export default function PaymentForm({ expense, onDone }) {
         Payment amount (₹) *
         <input
           name="amount"
-          type="number"
-          min="1"
-          step="1"
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
           required
           placeholder="e.g. 5000"
+          value={amount}
+          onChange={(e) => {
+            setAmount(e.target.value.replace(/[^0-9]/g, ''));
+            if (errors.amount) setErrors((prev) => ({ ...prev, amount: null }));
+          }}
           autoFocus
         />
         {errors.amount && <span className="field-hint" style={{ color: '#b45309' }}>{errors.amount}</span>}

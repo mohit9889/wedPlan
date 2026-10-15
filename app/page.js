@@ -239,7 +239,18 @@ export default function DashboardPage() {
         }}>
           <label>
             Overall wedding budget (₹)
-            <input name="budget" type="number" min="0" step="1" defaultValue={budget} required autoFocus />
+            <input
+              name="budget"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              defaultValue={budget ? String(budget) : ''}
+              onInput={(e) => {
+                e.target.value = e.target.value.replace(/[^0-9]/g, '');
+              }}
+              required
+              autoFocus
+            />
           </label>
           <p className="field-hint">
             Current committed expenses: {formatINR(totals.totalWorking)}.

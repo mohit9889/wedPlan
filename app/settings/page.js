@@ -153,10 +153,13 @@ export default function SettingsPage() {
               Overall budget (₹)
               <input
                 name="budget"
-                type="number"
-                min="0"
-                step="1"
-                defaultValue={budget}
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                defaultValue={budget ? String(budget) : ''}
+                onInput={(e) => {
+                  e.target.value = e.target.value.replace(/[^0-9]/g, '');
+                }}
                 required
               />
             </label>
@@ -352,7 +355,16 @@ export default function SettingsPage() {
           </label>
           <label>
             Overall budget (₹)
-            <input name="budget" type="number" min="0" step="1" defaultValue="2000000" />
+            <input
+              name="budget"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              defaultValue="2000000"
+              onInput={(e) => {
+                e.target.value = e.target.value.replace(/[^0-9]/g, '');
+              }}
+            />
           </label>
           <div className="modal-actions">
             <button type="button" className="secondary-button" onClick={() => setModal(null)}>Cancel</button>

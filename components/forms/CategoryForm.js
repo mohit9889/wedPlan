@@ -69,11 +69,14 @@ export default function CategoryForm({ category, onDone }) {
         Category budget (₹)
         <input
           name="budget_amount"
-          type="number"
-          min="0"
-          step="1"
+          type="text"
+          inputMode="numeric"
+          pattern="[0-9]*"
           placeholder="Optional"
-          defaultValue={category?.budget_amount || ''}
+          defaultValue={category?.budget_amount !== null && category?.budget_amount !== undefined ? String(category.budget_amount) : ''}
+          onInput={(e) => {
+            e.target.value = e.target.value.replace(/[^0-9]/g, '');
+          }}
         />
         {errors.budget_amount && <span className="field-hint" style={{ color: '#b45309' }}>{errors.budget_amount}</span>}
       </label>

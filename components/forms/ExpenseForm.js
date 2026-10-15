@@ -8,8 +8,8 @@ import ConfirmDialog from '../ui/ConfirmDialog';
 import { CreditCard, Trash2, AlertCircle } from 'lucide-react';
 
 /**
- * Expense create/edit form with embedded payment recording based on status
- * and permanent delete option.
+ * Expense create/edit form with a single Cost field (text numeric input),
+ * status-based payment recording, overpayment prevention, and permanent delete option.
  *
  * @param {object} props
  * @param {object|null} props.expense - Existing expense for editing, null for create
@@ -21,29 +21,29 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
   const {
     addExpense, updateExpense, deleteExpense, addPayment,
     activeCategories, categories, payments,
-    getPaidAmount, formatINR, notify,
+    getPaidAmount, formatINR,
   } = useWorkspace();
 
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
-  // Form states
+  // Status state
   const [status, setStatus] = useState(expense?.status || 'planned');
-  const [estimatedCost, setEstimatedCost] = useState(expense?.estimated_amount ?? '');
-  const [finalCost, setFinalCost] = useState(expense?.final_amount ?? '');
 
-  // Calculate financial context for embedded payment
+  // Single Cost field: initialize from existing expense (checking final_amount or estimated_amount)
+  const initialCost = expense?.final_amount ?? expense?.estimated_amount ?? '';
+  const [cost, setCost] = useState(initialCost !== '' && initialCost !== null ? String(initialCost) : '');
+
+  // Numeric cost for calculations
   const workingAmount = useMemo(() => {
-    if (finalCost !== '' && finalCost !== null && !isNaN(Number(finalCost))) {
-      return Number(finalCost);
-    }
-    if (estimatedCost !== '' && estimatedCost !== null && !isNaN(Number(estimatedCost))) {
-      return Number(estimatedCost);
+    if (cost !== '' && !isNaN(Number(cost))) {
+      return Number(cost);
     }
     return 0;
-  }, [estimatedCost, finalCost]);
+  }, [cost]);
 
+  // Existing payments for this expense
   const existingPaid = useMemo(() => {
     if (!expense?.id) return 0;
     return getPaidAmount(expense.id, payments);
@@ -53,32 +53,50 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
     return Math.max(0, workingAmount - existingPaid);
   }, [workingAmount, existingPaid]);
 
-  // Payment section is displayed for 'booked', 'partially_paid', and 'paid'
+  const isFullyPaid = workingAmount > 0 && existingPaid >= workingAmount;
+  const isOverpaid = workingAmount > 0 && existingPaid > workingAmount;
+
+  // Embedded payment is eligible for 'booked', 'partially_paid', and 'paid'
   const isPaymentEligible = ['booked', 'partially_paid', 'paid'].includes(status);
-  const [recordPayment, setRecordPayment] = useState(true);
 
-  // Suggested default payment amount
-  const defaultPaymentAmount = useMemo(() => {
-    if (status === 'paid') {
-      return remainingBalance > 0 ? remainingBalance : (workingAmount > 0 ? workingAmount : '');
-    }
+  // IMPORTANT: For an existing expense, recordPayment MUST default to false.
+  // When editing an expense, the user does not want to re-record payments unless explicitly requested.
+  // For a brand new expense with paid/booked status, default to true.
+  const [recordPayment, setRecordPayment] = useState(() => {
+    if (expense) return false;
+    return ['paid', 'booked', 'partially_paid'].includes(status);
+  });
+
+  // Suggested payment amount
+  const [paymentAmount, setPaymentAmount] = useState(() => {
+    if (expense) return '';
+    if (status === 'paid' && workingAmount > 0) return String(workingAmount);
     return '';
-  }, [status, remainingBalance, workingAmount]);
+  });
 
-  const [paymentAmount, setPaymentAmount] = useState(defaultPaymentAmount);
   const [paymentDate, setPaymentDate] = useState(todayISO());
   const [paymentMethod, setPaymentMethod] = useState('UPI');
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
 
-  // When status switches to 'paid', auto-fill remaining balance if not customized
+  // When status changes:
   function handleStatusChange(newStatus) {
     setStatus(newStatus);
     if (newStatus === 'paid') {
-      const suggested = remainingBalance > 0 ? remainingBalance : (workingAmount > 0 ? workingAmount : '');
-      setPaymentAmount(suggested);
+      if (remainingBalance > 0) {
+        setPaymentAmount(String(remainingBalance));
+        setRecordPayment(true);
+      } else {
+        // Already fully paid or 0 cost: do not suggest full cost and do not auto-check
+        setPaymentAmount('');
+        setRecordPayment(false);
+      }
+    } else if (newStatus === 'booked' || newStatus === 'partially_paid') {
+      if (!paymentAmount) {
+        // Keep payment unchecked on existing expense unless user wants to add an installment
+        if (!expense) setRecordPayment(true);
+      }
     }
-    setRecordPayment(true);
   }
 
   const defaultCatId = expense?.category_id
@@ -89,12 +107,14 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
   async function handleSubmit(e) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
+    const numericCost = cost.trim() !== '' ? Number(cost) : null;
+
     const data = {
       name: String(form.get('name') || '').trim(),
       category_id: String(form.get('category_id') || ''),
       vendor: String(form.get('vendor') || '').trim() || null,
-      estimated_amount: form.get('estimated_amount'),
-      final_amount: form.get('final_amount'),
+      estimated_amount: numericCost,
+      final_amount: numericCost,
       due_date: String(form.get('due_date') || '') || null,
       notes: String(form.get('notes') || '').trim() || null,
       status: status,
@@ -124,7 +144,7 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
         savedExpenseId = created.id;
       }
 
-      // Record payment if selected and amount is provided
+      // Record payment ONLY if user explicitly chose to record payment and provided positive amount
       if (isPaymentEligible && recordPayment && paymentAmount && Number(paymentAmount) > 0) {
         const autoNote = status === 'booked'
           ? 'Booking deposit / token'
@@ -199,34 +219,30 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
           {errors.category_id && <span className="field-hint" style={{ color: '#b45309' }}>{errors.category_id}</span>}
         </label>
 
-        <div className="form-two-col">
-          <label>
-            Estimated cost (₹)
-            <input
-              name="estimated_amount"
-              type="number"
-              min="0"
-              step="1"
-              placeholder="0"
-              value={estimatedCost}
-              onChange={(e) => setEstimatedCost(e.target.value)}
-            />
-            {errors.estimated_amount && <span className="field-hint" style={{ color: '#b45309' }}>{errors.estimated_amount}</span>}
-          </label>
-          <label>
-            Final cost (₹)
-            <input
-              name="final_amount"
-              type="number"
-              min="0"
-              step="1"
-              placeholder="Leave blank until confirmed"
-              value={finalCost}
-              onChange={(e) => setFinalCost(e.target.value)}
-            />
-            {errors.final_amount && <span className="field-hint" style={{ color: '#b45309' }}>{errors.final_amount}</span>}
-          </label>
-        </div>
+        {/* ─── Single Cost Field (Text input allowing numbers only) ─── */}
+        <label>
+          Cost (₹)
+          <input
+            name="cost"
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            placeholder="0"
+            value={cost}
+            onChange={(e) => {
+              const val = e.target.value.replace(/[^0-9]/g, '');
+              setCost(val);
+              if (errors.estimated_amount || errors.final_amount) {
+                setErrors((prev) => ({ ...prev, estimated_amount: null, final_amount: null }));
+              }
+            }}
+          />
+          {(errors.estimated_amount || errors.final_amount) && (
+            <span className="field-hint" style={{ color: '#b45309' }}>
+              {errors.estimated_amount || errors.final_amount}
+            </span>
+          )}
+        </label>
 
         <label>
           Status
@@ -250,21 +266,38 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
               <b>
                 <CreditCard size={17} color="#0f766e" />
                 {status === 'booked'
-                  ? 'Record booking token'
+                  ? 'Booking token'
                   : status === 'paid'
-                    ? 'Record full payment'
-                    : 'Record partial payment'}
+                    ? 'Payment settlement'
+                    : 'Partial payment'}
               </b>
               <span className="embedded-payment-tag">{status.replace('_', ' ')}</span>
             </div>
 
+            {/* Existing payment summary & overpayment alert */}
             {expense && existingPaid > 0 && (
               <div style={{
-                fontSize: 11, background: '#e6fffa', padding: '7px 10px',
-                borderRadius: 8, color: '#0f766e', display: 'flex', justifyContent: 'space-between'
+                fontSize: 12,
+                background: isOverpaid ? '#fef2f2' : isFullyPaid ? '#ecfdf5' : '#e6fffa',
+                border: `1px solid ${isOverpaid ? '#fecaca' : isFullyPaid ? '#a7f3d0' : '#99f6e4'}`,
+                padding: '8px 12px',
+                borderRadius: 8,
+                color: isOverpaid ? '#991b1b' : isFullyPaid ? '#065f46' : '#0f766e',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: 6,
               }}>
                 <span>Already paid: <b>{formatINR(existingPaid)}</b></span>
-                <span>Remaining: <b>{formatINR(remainingBalance)}</b></span>
+                <span>
+                  {isOverpaid
+                    ? <b>Overpaid by {formatINR(existingPaid - workingAmount)}</b>
+                    : isFullyPaid
+                      ? <b>Fully paid (No balance due)</b>
+                      : <>Remaining: <b>{formatINR(remainingBalance)}</b></>
+                  }
+                </span>
               </div>
             )}
 
@@ -272,10 +305,16 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
               <input
                 type="checkbox"
                 checked={recordPayment}
-                onChange={(e) => setRecordPayment(e.target.checked)}
+                onChange={(e) => {
+                  const checked = e.target.checked;
+                  setRecordPayment(checked);
+                  if (checked && !paymentAmount && remainingBalance > 0 && status === 'paid') {
+                    setPaymentAmount(String(remainingBalance));
+                  }
+                }}
                 style={{ width: 'auto' }}
               />
-              Record a payment for this expense now
+              {expense ? 'Record an additional payment for this expense now' : 'Record a payment for this expense now'}
             </label>
 
             {recordPayment && (
@@ -283,9 +322,10 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
                 <label>
                   Payment amount (₹) *
                   <input
-                    type="number"
-                    min="1"
-                    step="1"
+                    name="payment_amount"
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
                     required={recordPayment}
                     placeholder={
                       status === 'paid' && remainingBalance > 0
@@ -293,8 +333,13 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
                         : 'e.g. 5000'
                     }
                     value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value)}
+                    onChange={(e) => setPaymentAmount(e.target.value.replace(/[^0-9]/g, ''))}
                   />
+                  {paymentAmount && Number(paymentAmount) > remainingBalance && workingAmount > 0 && (
+                    <span className="field-hint" style={{ color: '#b45309' }}>
+                      Note: This payment exceeds the remaining balance by {formatINR(Number(paymentAmount) - remainingBalance)}.
+                    </span>
+                  )}
                 </label>
 
                 <div className="form-two-col">
