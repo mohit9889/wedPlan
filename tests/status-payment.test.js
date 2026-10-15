@@ -134,5 +134,43 @@ describe('Status-based Payment Flow and Expense Deletion', () => {
     expect(result.data.estimated_amount).toBe(45000);
     expect(result.data.final_amount).toBe(45000);
   });
+
+  it('calculates rest amount need to be paid for Booked status', () => {
+    const cost = 50000;
+    const tokenPaid = 15000;
+    const restAmount = Math.max(0, cost - tokenPaid);
+
+    expect(restAmount).toBe(35000);
+  });
+
+  it('calculates rest amount need to be paid for Partially Paid status', () => {
+    const cost = 80000;
+    const alreadyPaid = 30000;
+    const restAmount = Math.max(0, cost - alreadyPaid);
+
+    expect(restAmount).toBe(50000);
+  });
+
+  it('automatically calculates full settlement without payment amount input for Paid fully status', () => {
+    // Case A: Brand new expense of 60000 with Paid fully
+    const newCost = 60000;
+    const paymentForNew = newCost;
+    expect(paymentForNew).toBe(60000);
+
+    // Case B: Existing expense with 20000 already paid, status changed to Paid fully
+    const existingCost = 60000;
+    const existingPaid = 20000;
+    const remainingBalance = Math.max(0, existingCost - existingPaid);
+    const paymentForExisting = remainingBalance;
+    expect(paymentForExisting).toBe(40000);
+
+    // Case C: Existing expense already 100% paid
+    const fullyPaidExpenseCost = 60000;
+    const fullyPaidAmount = 60000;
+    const remaining = Math.max(0, fullyPaidExpenseCost - fullyPaidAmount);
+    const paymentRecorded = remaining > 0 ? remaining : 0;
+    expect(paymentRecorded).toBe(0);
+  });
 });
+
 

@@ -5,17 +5,17 @@ import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { validate, expenseSchema } from '../../lib/validation';
 import { todayISO } from '../../lib/dates';
 import ConfirmDialog from '../ui/ConfirmDialog';
-import { CreditCard, Trash2, AlertCircle } from 'lucide-react';
+import { CreditCard, Trash2, AlertCircle, CheckCircle } from 'lucide-react';
 
 /**
- * Expense create/edit form with a single Cost field (text numeric input),
- * status-based payment recording, overpayment prevention, and permanent delete option.
- *
- * @param {object} props
- * @param {object|null} props.expense - Existing expense for editing, null for create
- * @param {string} [props.defaultCategoryId] - Pre-selected category
- * @param {function} props.onDone - Called after successful save/delete
- * @param {function} [props.onSwitchToCategory] - Switch to category creation
+ * Expense create/edit form with:
+ * - Single Cost field (text numeric input)
+ * - Status-driven payment details:
+ *   - Paid fully: hides payment amount field (records full amount / remaining balance automatically)
+ *   - Partial payment: asks "How much is already paid?" and shows rest amount need to be paid
+ *   - Booked: asks "How much token is paid?" and shows rest amount need to be paid
+ * - Overpayment prevention
+ * - Permanent delete option with confirmation
  */
 export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwitchToCategory }) {
   const {
@@ -53,24 +53,18 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
     return Math.max(0, workingAmount - existingPaid);
   }, [workingAmount, existingPaid]);
 
-  const isFullyPaid = workingAmount > 0 && existingPaid >= workingAmount;
-  const isOverpaid = workingAmount > 0 && existingPaid > workingAmount;
-
-  // Embedded payment is eligible for 'booked', 'partially_paid', and 'paid'
-  const isPaymentEligible = ['booked', 'partially_paid', 'paid'].includes(status);
-
-  // IMPORTANT: For an existing expense, recordPayment MUST default to false.
-  // When editing an expense, the user does not want to re-record payments unless explicitly requested.
-  // For a brand new expense with paid/booked status, default to true.
-  const [recordPayment, setRecordPayment] = useState(() => {
-    if (expense) return false;
-    return ['paid', 'booked', 'partially_paid'].includes(status);
+  // Amounts for Booked and Partially Paid
+  const [tokenAmount, setTokenAmount] = useState(() => {
+    if (expense?.id && existingPaid > 0 && expense.status === 'booked') {
+      return String(existingPaid);
+    }
+    return '';
   });
 
-  // Suggested payment amount
-  const [paymentAmount, setPaymentAmount] = useState(() => {
-    if (expense) return '';
-    if (status === 'paid' && workingAmount > 0) return String(workingAmount);
+  const [partialAmount, setPartialAmount] = useState(() => {
+    if (expense?.id && existingPaid > 0 && expense.status === 'partially_paid') {
+      return String(existingPaid);
+    }
     return '';
   });
 
@@ -79,23 +73,14 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
   const [paymentReference, setPaymentReference] = useState('');
   const [paymentNotes, setPaymentNotes] = useState('');
 
-  // When status changes:
+  // Handle status changes
   function handleStatusChange(newStatus) {
     setStatus(newStatus);
-    if (newStatus === 'paid') {
-      if (remainingBalance > 0) {
-        setPaymentAmount(String(remainingBalance));
-        setRecordPayment(true);
-      } else {
-        // Already fully paid or 0 cost: do not suggest full cost and do not auto-check
-        setPaymentAmount('');
-        setRecordPayment(false);
-      }
-    } else if (newStatus === 'booked' || newStatus === 'partially_paid') {
-      if (!paymentAmount) {
-        // Keep payment unchecked on existing expense unless user wants to add an installment
-        if (!expense) setRecordPayment(true);
-      }
+    if (newStatus === 'booked' && !tokenAmount && existingPaid > 0) {
+      setTokenAmount(String(existingPaid));
+    }
+    if (newStatus === 'partially_paid' && !partialAmount && existingPaid > 0) {
+      setPartialAmount(String(existingPaid));
     }
   }
 
@@ -144,17 +129,37 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
         savedExpenseId = created.id;
       }
 
-      // Record payment ONLY if user explicitly chose to record payment and provided positive amount
-      if (isPaymentEligible && recordPayment && paymentAmount && Number(paymentAmount) > 0) {
-        const autoNote = status === 'booked'
-          ? 'Booking deposit / token'
-          : status === 'paid'
-            ? 'Final full payment'
-            : 'Partial advance payment';
+      // ─── Calculate Payment to Record based on Status ─────────
+      let paymentToRecord = 0;
+      let autoNote = '';
 
+      if (status === 'paid') {
+        // Paid fully: records whatever remains (or full working amount if new)
+        paymentToRecord = remainingBalance > 0 ? remainingBalance : (expense ? 0 : workingAmount);
+        autoNote = 'Final full payment';
+      } else if (status === 'booked') {
+        const enteredToken = Number(tokenAmount || 0);
+        if (expense && existingPaid > 0) {
+          paymentToRecord = Math.max(0, enteredToken - existingPaid);
+        } else {
+          paymentToRecord = enteredToken;
+        }
+        autoNote = 'Booking deposit / token';
+      } else if (status === 'partially_paid') {
+        const enteredPartial = Number(partialAmount || 0);
+        if (expense && existingPaid > 0) {
+          paymentToRecord = Math.max(0, enteredPartial - existingPaid);
+        } else {
+          paymentToRecord = enteredPartial;
+        }
+        autoNote = 'Partial advance payment';
+      }
+
+      // Record payment only if positive amount to record
+      if (paymentToRecord > 0) {
         addPayment({
           expense_id: savedExpenseId,
-          amount: Number(paymentAmount),
+          amount: paymentToRecord,
           paid_at: paymentDate || todayISO(),
           payment_method: paymentMethod || 'UPI',
           reference: paymentReference?.trim() || null,
@@ -252,96 +257,57 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
             onChange={(e) => handleStatusChange(e.target.value)}
           >
             <option value="planned">Planned</option>
-            <option value="booked">Booked (Token / Deposit)</option>
+            <option value="booked">Booked</option>
             <option value="partially_paid">Partially Paid</option>
-            <option value="paid">Paid (Full settlement)</option>
+            <option value="paid">Paid fully</option>
             <option value="cancelled">Cancelled</option>
           </select>
         </label>
 
-        {/* ─── Embedded Payment Section for Booked, Partially Paid, Paid ─── */}
-        {isPaymentEligible && (
+        {/* ─── 1. STATUS: PAID FULLY (No payment amount field shown) ─── */}
+        {status === 'paid' && (
           <div className="embedded-payment-box">
             <div className="embedded-payment-header">
               <b>
-                <CreditCard size={17} color="#0f766e" />
-                {status === 'booked'
-                  ? 'Booking token'
-                  : status === 'paid'
-                    ? 'Payment settlement'
-                    : 'Partial payment'}
+                <CheckCircle size={17} color="#0f766e" />
+                Payment Settlement
               </b>
-              <span className="embedded-payment-tag">{status.replace('_', ' ')}</span>
+              <span className="embedded-payment-tag">PAID FULLY</span>
             </div>
 
-            {/* Existing payment summary & overpayment alert */}
-            {expense && existingPaid > 0 && (
-              <div style={{
-                fontSize: 12,
-                background: isOverpaid ? '#fef2f2' : isFullyPaid ? '#ecfdf5' : '#e6fffa',
-                border: `1px solid ${isOverpaid ? '#fecaca' : isFullyPaid ? '#a7f3d0' : '#99f6e4'}`,
-                padding: '8px 12px',
-                borderRadius: 8,
-                color: isOverpaid ? '#991b1b' : isFullyPaid ? '#065f46' : '#0f766e',
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: 6,
-              }}>
-                <span>Already paid: <b>{formatINR(existingPaid)}</b></span>
-                <span>
-                  {isOverpaid
-                    ? <b>Overpaid by {formatINR(existingPaid - workingAmount)}</b>
-                    : isFullyPaid
-                      ? <b>Fully paid (No balance due)</b>
-                      : <>Remaining: <b>{formatINR(remainingBalance)}</b></>
-                  }
-                </span>
-              </div>
-            )}
-
-            <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, fontWeight: 600, color: '#234e46', margin: '2px 0' }}>
-              <input
-                type="checkbox"
-                checked={recordPayment}
-                onChange={(e) => {
-                  const checked = e.target.checked;
-                  setRecordPayment(checked);
-                  if (checked && !paymentAmount && remainingBalance > 0 && status === 'paid') {
-                    setPaymentAmount(String(remainingBalance));
-                  }
-                }}
-                style={{ width: 'auto' }}
-              />
-              {expense ? 'Record an additional payment for this expense now' : 'Record a payment for this expense now'}
-            </label>
-
-            {recordPayment && (
-              <div style={{ display: 'grid', gap: 11, marginTop: 4 }}>
-                <label>
-                  Payment amount (₹) *
-                  <input
-                    name="payment_amount"
-                    type="text"
-                    inputMode="numeric"
-                    pattern="[0-9]*"
-                    required={recordPayment}
-                    placeholder={
-                      status === 'paid' && remainingBalance > 0
-                        ? `Suggested: ${remainingBalance}`
-                        : 'e.g. 5000'
-                    }
-                    value={paymentAmount}
-                    onChange={(e) => setPaymentAmount(e.target.value.replace(/[^0-9]/g, ''))}
-                  />
-                  {paymentAmount && Number(paymentAmount) > remainingBalance && workingAmount > 0 && (
-                    <span className="field-hint" style={{ color: '#b45309' }}>
-                      Note: This payment exceeds the remaining balance by {formatINR(Number(paymentAmount) - remainingBalance)}.
-                    </span>
+            <div style={{
+              fontSize: 13,
+              background: '#f0fdfa',
+              border: '1px solid #99f6e4',
+              padding: '10px 14px',
+              borderRadius: 10,
+              color: '#0f766e',
+              lineHeight: 1.5,
+            }}>
+              {workingAmount === 0 ? (
+                <span>Please enter the <b>Cost</b> above to record the full payment.</span>
+              ) : remainingBalance > 0 ? (
+                <div>
+                  <div>Full payment of <b>{formatINR(remainingBalance)}</b> will be recorded on save.</div>
+                  {existingPaid > 0 && (
+                    <div style={{ fontSize: 11, color: '#115e59', marginTop: 3 }}>
+                      Already paid: {formatINR(existingPaid)} · Final balance to complete: {formatINR(remainingBalance)}
+                    </div>
                   )}
-                </label>
+                </div>
+              ) : (
+                <div>
+                  <b>✓ Fully paid ({formatINR(existingPaid)} already paid)</b>
+                  <div style={{ fontSize: 11, color: '#115e59', marginTop: 2 }}>
+                    No additional payment is required.
+                  </div>
+                </div>
+              )}
+            </div>
 
+            {/* Payment details (Date, Method, Reference, Notes) */}
+            {remainingBalance > 0 && workingAmount > 0 && (
+              <div style={{ display: 'grid', gap: 11, marginTop: 4 }}>
                 <div className="form-two-col">
                   <label>
                     Payment date
@@ -381,13 +347,213 @@ export default function ExpenseForm({ expense, defaultCategoryId, onDone, onSwit
                     Payment note
                     <input
                       maxLength={150}
-                      placeholder={
-                        status === 'booked'
-                          ? 'e.g. Token paid'
-                          : status === 'paid'
-                            ? 'e.g. Final settlement'
-                            : 'e.g. Advance paid'
-                      }
+                      placeholder="e.g. Final full settlement"
+                      value={paymentNotes}
+                      onChange={(e) => setPaymentNotes(e.target.value)}
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── 2. STATUS: BOOKED (Ask token paid & show rest amount) ─── */}
+        {status === 'booked' && (
+          <div className="embedded-payment-box">
+            <div className="embedded-payment-header">
+              <b>
+                <CreditCard size={17} color="#0f766e" />
+                Booking Token Details
+              </b>
+              <span className="embedded-payment-tag">BOOKED</span>
+            </div>
+
+            <label>
+              How much token is paid? (₹) *
+              <input
+                name="token_amount"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="Enter token amount paid"
+                value={tokenAmount}
+                onChange={(e) => setTokenAmount(e.target.value.replace(/[^0-9]/g, ''))}
+              />
+            </label>
+
+            {/* Rest amount need to be paid */}
+            <div style={{
+              fontSize: 12,
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              padding: '9px 12px',
+              borderRadius: 8,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 6,
+            }}>
+              <span>
+                Token paid: <b>{formatINR(Number(tokenAmount || 0))}</b>
+              </span>
+              <span style={{ color: '#0f766e', fontWeight: 700 }}>
+                Rest amount need to be paid: {formatINR(Math.max(0, workingAmount - Number(tokenAmount || 0)))}
+              </span>
+            </div>
+
+            {Number(tokenAmount) > workingAmount && workingAmount > 0 && (
+              <span className="field-hint" style={{ color: '#b45309' }}>
+                Note: Token paid exceeds total cost by {formatINR(Number(tokenAmount) - workingAmount)}.
+              </span>
+            )}
+
+            {Number(tokenAmount) > 0 && (
+              <div style={{ display: 'grid', gap: 11, marginTop: 4 }}>
+                <div className="form-two-col">
+                  <label>
+                    Payment date
+                    <input
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Payment method
+                    <select
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                    >
+                      <option value="UPI">UPI</option>
+                      <option value="cash">Cash</option>
+                      <option value="bank_transfer">Bank Transfer</option>
+                      <option value="credit_card">Credit Card</option>
+                      <option value="debit_card">Debit Card</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="form-two-col">
+                  <label>
+                    Reference / Transaction ID
+                    <input
+                      maxLength={100}
+                      placeholder="Optional (e.g. UPI ref)"
+                      value={paymentReference}
+                      onChange={(e) => setPaymentReference(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Payment note
+                    <input
+                      maxLength={150}
+                      placeholder="e.g. Booking deposit / token"
+                      value={paymentNotes}
+                      onChange={(e) => setPaymentNotes(e.target.value)}
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ─── 3. STATUS: PARTIALLY PAID (Ask how much is already paid & show rest amount) ─── */}
+        {status === 'partially_paid' && (
+          <div className="embedded-payment-box">
+            <div className="embedded-payment-header">
+              <b>
+                <CreditCard size={17} color="#0f766e" />
+                Partial Payment Details
+              </b>
+              <span className="embedded-payment-tag">PARTIAL PAYMENT</span>
+            </div>
+
+            <label>
+              How much is already paid? (₹) *
+              <input
+                name="partial_amount"
+                type="text"
+                inputMode="numeric"
+                pattern="[0-9]*"
+                placeholder="Enter amount already paid"
+                value={partialAmount}
+                onChange={(e) => setPartialAmount(e.target.value.replace(/[^0-9]/g, ''))}
+              />
+            </label>
+
+            {/* Rest amount need to be paid */}
+            <div style={{
+              fontSize: 12,
+              background: '#f8fafc',
+              border: '1px solid #cbd5e1',
+              padding: '9px 12px',
+              borderRadius: 8,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 6,
+            }}>
+              <span>
+                Already paid: <b>{formatINR(Number(partialAmount || 0))}</b>
+              </span>
+              <span style={{ color: '#0f766e', fontWeight: 700 }}>
+                Rest amount need to be paid: {formatINR(Math.max(0, workingAmount - Number(partialAmount || 0)))}
+              </span>
+            </div>
+
+            {Number(partialAmount) > workingAmount && workingAmount > 0 && (
+              <span className="field-hint" style={{ color: '#b45309' }}>
+                Note: Amount paid exceeds total cost by {formatINR(Number(partialAmount) - workingAmount)}.
+              </span>
+            )}
+
+            {Number(partialAmount) > 0 && (
+              <div style={{ display: 'grid', gap: 11, marginTop: 4 }}>
+                <div className="form-two-col">
+                  <label>
+                    Payment date
+                    <input
+                      type="date"
+                      value={paymentDate}
+                      onChange={(e) => setPaymentDate(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Payment method
+                    <select
+                      value={paymentMethod}
+                      onChange={(e) => setPaymentMethod(e.target.value)}
+                    >
+                      <option value="UPI">UPI</option>
+                      <option value="cash">Cash</option>
+                      <option value="bank_transfer">Bank Transfer</option>
+                      <option value="credit_card">Credit Card</option>
+                      <option value="debit_card">Debit Card</option>
+                      <option value="other">Other</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div className="form-two-col">
+                  <label>
+                    Reference / Transaction ID
+                    <input
+                      maxLength={100}
+                      placeholder="Optional (e.g. UPI ref)"
+                      value={paymentReference}
+                      onChange={(e) => setPaymentReference(e.target.value)}
+                    />
+                  </label>
+                  <label>
+                    Payment note
+                    <input
+                      maxLength={150}
+                      placeholder="e.g. Partial advance payment"
                       value={paymentNotes}
                       onChange={(e) => setPaymentNotes(e.target.value)}
                     />
