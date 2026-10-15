@@ -11,7 +11,16 @@ import { formatINR } from '../lib/currency';
 
 const WorkspaceContext = createContext(null);
 
-const uid = () => `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+const uid = () => {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+};
 
 export function WorkspaceProvider({ children }) {
   // ─── Core state ──────────────────────────────────────
@@ -87,7 +96,7 @@ export function WorkspaceProvider({ children }) {
           supabase.from('workspaces').select('*').eq('id', profile.workspace_id).maybeSingle(),
           supabase.from('categories').select('*').eq('workspace_id', profile.workspace_id).order('created_at'),
           supabase.from('expenses').select('*').eq('workspace_id', profile.workspace_id).order('created_at'),
-          supabase.from('payments').select('*').eq('workspace_id', profile.workspace_id).order('payment_date'),
+          supabase.from('payments').select('*').eq('workspace_id', profile.workspace_id).order('paid_at'),
           supabase.from('workspace_members').select('user_id, role, created_at').eq('workspace_id', profile.workspace_id),
         ]);
 
@@ -102,22 +111,25 @@ export function WorkspaceProvider({ children }) {
           setCategories(catRes.data.map((c) => ({
             ...c,
             budget_amount: Number(c.budget || 0),
-            is_archived: Boolean(c.archived_at),
+            is_archived: Boolean(c.is_archived || c.archived_at),
           })));
         }
         if (expRes.data) {
           setExpenses(expRes.data.map((e) => ({
             ...e,
             estimated_amount: Number(e.estimated_cost || 0),
-            final_amount: e.final_cost === null ? null : Number(e.final_cost),
-            is_archived: Boolean(e.archived_at),
+            final_amount: e.final_cost === null || e.final_cost === undefined ? null : Number(e.final_cost),
+            status: e.status || 'planned',
+            is_archived: Boolean(e.is_archived || e.archived_at),
           })));
         }
         if (payRes.data) {
           setPayments(payRes.data.map((p) => ({
             ...p,
             amount: Number(p.amount),
-            paid_at: p.payment_date,
+            paid_at: p.paid_at || p.payment_date,
+            payment_method: p.payment_method || p.method || null,
+            reference: p.reference || null,
           })));
         }
         if (membersRes.data) {
@@ -154,6 +166,7 @@ export function WorkspaceProvider({ children }) {
       name: cat.name,
       icon: cat.icon || 'folder',
       budget: Number(cat.budget_amount || 0),
+      is_archived: Boolean(cat.is_archived),
       archived_at: cat.is_archived ? (cat.archived_at || new Date().toISOString()) : null,
     };
     const { error } = await supabase.from('categories').upsert(payload);
@@ -169,9 +182,11 @@ export function WorkspaceProvider({ children }) {
       name: exp.name,
       vendor: exp.vendor || null,
       estimated_cost: Number(exp.estimated_amount || 0),
-      final_cost: exp.final_amount === '' || exp.final_amount === undefined ? null : exp.final_amount,
+      final_cost: exp.final_amount === '' || exp.final_amount === undefined || exp.final_amount === null ? null : Number(exp.final_amount),
       due_date: exp.due_date || null,
+      status: exp.status || 'planned',
       notes: exp.notes || null,
+      is_archived: Boolean(exp.is_archived),
       archived_at: exp.is_archived ? (exp.archived_at || new Date().toISOString()) : null,
     };
     const { error } = await supabase.from('expenses').upsert(payload);
@@ -185,8 +200,9 @@ export function WorkspaceProvider({ children }) {
       workspace_id: workspaceId,
       expense_id: pay.expense_id,
       amount: Number(pay.amount),
-      payment_date: pay.paid_at || new Date().toISOString().slice(0, 10),
-      method: pay.payment_method || null,
+      paid_at: pay.paid_at || new Date().toISOString().slice(0, 10),
+      payment_method: pay.payment_method || pay.method || null,
+      reference: pay.reference || null,
       notes: pay.notes || null,
     };
     const { error } = await supabase.from('payments').upsert(payload);
